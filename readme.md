@@ -65,7 +65,7 @@ The plugin supports multiple languages. Add additional translations to the `i18n
 
 ## License
 
-This project is licensed under the CC BY NC SA - see the LICENSE file for details.
+This project is licensed under the GPLv3 License - see the LICENSE file for details.
 
 ## Acknowledgments
 
