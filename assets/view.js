@@ -52,8 +52,8 @@ CTFd.plugin.run((_CTFd) => {
         geocoder.on("markgeocode", function (event) {
           const center = event.geocode.center;
 
-          $("#submit-latitude").val(center.lat.toFixed(6));
-          $("#submit-longitude").val(center.lng.toFixed(6));
+          $("#submit-latitude").val(center.lat.toFixed(10));
+          $("#submit-longitude").val(center.lng.toFixed(10));
 
           if (marker) {
             marker.setLatLng(center);
@@ -72,8 +72,8 @@ CTFd.plugin.run((_CTFd) => {
           const lat = e.latlng.lat;
           const lng = e.latlng.lng;
 
-          $("#submit-latitude").val(lat.toFixed(6));
-          $("#submit-longitude").val(lng.toFixed(6));
+          $("#submit-latitude").val(lat.toFixed(10));
+          $("#submit-longitude").val(lng.toFixed(10));
 
           if (marker) {
             marker.setLatLng(e.latlng);

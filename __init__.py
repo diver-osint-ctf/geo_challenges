@@ -5,6 +5,7 @@ from CTFd.plugins.challenges import CHALLENGE_CLASSES, BaseChallenge
 from CTFd.utils.user import get_ip
 from CTFd.plugins.migrations import upgrade
 import math
+from sqlalchemy import Numeric
 
 # Patch CTFd's Challenge view to include additional fields
 from CTFd.api.v1.challenges import Challenge as ChallengeAPI
@@ -19,7 +20,10 @@ def patched_challenge_get(self, challenge_id):
         if challenge_data.get('type') == 'geo':
             challenge = GeoChallenge.query.filter_by(id=challenge_id).first()
             if challenge:
-                response['data']['tolerance_radius'] = challenge.tolerance_radius
+                response['data']['tolerance_radius'] = float(challenge.tolerance_radius)
+                # Assurer que les coordonnées sont retournées avec leur précision complète
+                response['data']['latitude'] = float(challenge.latitude)
+                response['data']['longitude'] = float(challenge.longitude)
     
     return response
 
@@ -31,9 +35,9 @@ class GeoChallenge(Challenges):
     id = db.Column(
         db.Integer, db.ForeignKey("challenges.id", ondelete="CASCADE"), primary_key=True
     )
-    latitude = db.Column(db.Float, default=0)
-    longitude = db.Column(db.Float, default=0)
-    tolerance_radius = db.Column(db.Float, default=10)
+    latitude = db.Column(Numeric(12, 10), default=0)
+    longitude = db.Column(Numeric(13, 10), default=0)
+    tolerance_radius = db.Column(Numeric(10, 2), default=10)
 
     def __init__(self, *args, **kwargs):
         super(GeoChallenge, self).__init__(**kwargs)
@@ -93,11 +97,11 @@ class GeoChallengeType(BaseChallenge):
             return False, "Invalid coordinates submitted"
 
         distance = cls.calculate_distance(
-            challenge.latitude, challenge.longitude,
+            float(challenge.latitude), float(challenge.longitude),
             user_lat, user_lon
         )
 
-        if distance <= challenge.tolerance_radius:
+        if distance <= float(challenge.tolerance_radius):
             return True, "Correct! You found the location!"
         
         return False, "Incorrect location. Try again!"

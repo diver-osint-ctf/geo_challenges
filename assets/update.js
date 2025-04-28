@@ -30,8 +30,8 @@ CTFd.plugin.run((_CTFd) => {
             const center = event.geocode.center;
             
             // Update form fields
-            $('#latitude').val(center.lat);
-            $('#longitude').val(center.lng);
+            $('#latitude').val(center.lat.toFixed(10));
+            $('#longitude').val(center.lng.toFixed(10));
             
             // Update marker
             marker.setLatLng(center);
@@ -79,8 +79,8 @@ CTFd.plugin.run((_CTFd) => {
             const lng = e.latlng.lng;
             
             // Update form fields
-            $('#latitude').val(lat);
-            $('#longitude').val(lng);
+            $('#latitude').val(lat.toFixed(10));
+            $('#longitude').val(lng.toFixed(10));
             
             // Update marker
             marker.setLatLng(e.latlng);

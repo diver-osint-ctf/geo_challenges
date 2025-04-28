@@ -37,12 +37,12 @@
 
 <div class="form-group">
     <label for="latitude">Latitude</label>
-    <input type="number" class="form-control" name="latitude" id="latitude" step="any" required>
+    <input type="text" class="form-control" name="latitude" id="latitude" required>
 </div>
 
 <div class="form-group">
     <label for="longitude">Longitude</label>
-    <input type="number" class="form-control" name="longitude" id="longitude" step="any" required>
+    <input type="text" class="form-control" name="longitude" id="longitude" required>
 </div>
 
 <div class="form-group">
@@ -76,8 +76,8 @@ window.addEventListener('load', function() {
         const lng = e.latlng.lng;
         
         // Update form fields
-        document.getElementById('latitude').value = lat;
-        document.getElementById('longitude').value = lng;
+        document.getElementById('latitude').value = lat.toFixed(10);
+        document.getElementById('longitude').value = lng.toFixed(10);
         
         // Update or create marker
         if (marker) {
