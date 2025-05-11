@@ -20,6 +20,12 @@ CTFd.plugin.run((_CTFd) => {
             'submit_location': 'Enviar ubicación',
             'select_location_first': 'Por favor, seleccione primero una ubicación en el mapa.',
             'error_submitting': 'Error al enviar el desafío'
+        },
+        'ja': {
+          'click_map': '地図上をクリックしてマーカーを置いてください。マーカーを置いた際の青い円は許容誤差範囲を示します。',
+          'submit_location': 'Submit Location',
+          'select_location_first': '地図上で座標を選択してください。',
+          'error_submitting': '問題の提出中にエラーが発生しました。'
         }
     };
     

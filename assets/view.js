@@ -85,6 +85,27 @@ CTFd.plugin.run((_CTFd) => {
           updateToleranceCircle();
         });
 
+        $('#submit-latitude, #submit-longitude').on('change', function() {
+          const lat = parseFloat($('#submit-latitude').val());
+          const lng = parseFloat($('#submit-longitude').val());
+          
+          if (isNaN(lat) || isNaN(lng)) {
+              return;
+          }
+          
+          const latlng = L.latLng(lat.toFixed(10), lng.toFixed(10));
+          
+          // Update or create marker
+          if (marker) {
+              marker.setLatLng(latlng);
+          } else {
+              marker = L.marker(latlng).addTo(mapInstance);
+          }
+          
+          // Center map on marker
+          mapInstance.setView(latlng);
+      });
+
         // Fetch challenge details to get the tolerance radius
         fetchChallengeDetails()
           .then(() => {
