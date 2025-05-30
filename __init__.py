@@ -5,7 +5,7 @@ from CTFd.plugins.challenges import CHALLENGE_CLASSES, BaseChallenge
 from CTFd.utils.user import get_ip
 from CTFd.plugins.migrations import upgrade
 import math
-from sqlalchemy import Numeric
+from sqlalchemy import Numeric, inspect, text
 
 # Patch CTFd's Challenge view to include additional fields
 from CTFd.api.v1.challenges import Challenge as ChallengeAPI
@@ -38,16 +38,24 @@ class GeoChallenge(Challenges):
     latitude = db.Column(Numeric(12, 10), default=0)
     longitude = db.Column(Numeric(13, 10), default=0)
     tolerance_radius = db.Column(Numeric(10, 2), default=10)
+    
+    # Dynamic scoring fields (optional)
+    initial = db.Column(db.Integer, default=None)
+    minimum = db.Column(db.Integer, default=None)
+    decay = db.Column(db.Integer, default=None)
 
     def __init__(self, *args, **kwargs):
         # Extract geo-specific parameters before passing to parent
-        print("[DEBUG_GEO] kwargs: ", kwargs)
         self.latitude = kwargs.pop('latitude', 0)
         self.longitude = kwargs.pop('longitude', 0)
         self.tolerance_radius = kwargs.pop('tolerance_radius', 10)
         
+        # Extract dynamic scoring parameters (for dynamic scoring support)
+        self.initial = kwargs.pop('initial', None)
+        self.minimum = kwargs.pop('minimum', None)
+        self.decay = kwargs.pop('decay', None)
+        
         # Only allow known valid parameters for the base Challenge model
-        # This prevents any unknown ctfcli parameters from causing issues
         valid_challenge_params = {
             'name', 'description', 'value', 'category', 'type', 'state'
         }
@@ -99,6 +107,27 @@ class GeoChallengeType(BaseChallenge):
         return R * c  # Distance in meters
 
     @classmethod
+    def calculate_value(cls, challenge):
+        """Calculate the current value of the challenge (supports dynamic scoring)"""
+        # If dynamic scoring parameters are not set, return the base value
+        if not all([challenge.initial, challenge.minimum, challenge.decay]):
+            return challenge.value
+        
+        # Count the number of solves for this challenge
+        solve_count = Solves.query.filter_by(challenge_id=challenge.id).count()
+        
+        # Use CTFd's dynamic scoring formula
+        # value = (((minimum - initial) / (decay ** 2)) * (solve_count ** 2)) + initial
+        value = (((challenge.minimum - challenge.initial) / (challenge.decay ** 2)) * (solve_count ** 2)) + challenge.initial
+        value = math.ceil(value)
+        
+        # Ensure value doesn't go below minimum
+        if value < challenge.minimum:
+            value = challenge.minimum
+            
+        return value
+
+    @classmethod
     def attempt(cls, challenge, request):
         """Handle submission attempt"""
         data = request.form or request.get_json()
@@ -125,6 +154,9 @@ class GeoChallengeType(BaseChallenge):
         data = request.form or request.get_json()
         submission = f"lat:{data['latitude']},lon:{data['longitude']}"
 
+        # Calculate current value (supports dynamic scoring)
+        current_value = cls.calculate_value(challenge)
+
         solve = Solves(
             user_id=user.id,
             team_id=team.id if team else None,
@@ -134,6 +166,13 @@ class GeoChallengeType(BaseChallenge):
         )
         
         db.session.add(solve)
+        
+        # If dynamic scoring is enabled, update the challenge value
+        if all([challenge.initial, challenge.minimum, challenge.decay]):
+            # Update the challenge's current value
+            challenge.value = current_value
+            db.session.add(challenge)
+        
         db.session.commit()
 
     @classmethod

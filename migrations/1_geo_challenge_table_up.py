@@ -23,15 +23,35 @@ def upgrade(op=None):
             sa.Column('id', sa.Integer, sa.ForeignKey('challenges.id', ondelete='CASCADE'), primary_key=True),
             sa.Column('latitude', sa.Float, default=0),
             sa.Column('longitude', sa.Float, default=0),
-            sa.Column('tolerance_radius', sa.Float, default=10)
+            sa.Column('tolerance_radius', sa.Float, default=10),
+            # Dynamic scoring columns (optional)
+            sa.Column('initial', sa.Integer, default=None),
+            sa.Column('minimum', sa.Integer, default=None),
+            sa.Column('decay', sa.Integer, default=None)
         )
     except Exception as e:
         print(f"Table creation error (might already exist): {str(e)}")
+        
+    # If table already exists, try to add the new columns
+    try:
+        op.add_column('geo_challenge', sa.Column('initial', sa.Integer, default=None))
+        op.add_column('geo_challenge', sa.Column('minimum', sa.Integer, default=None))
+        op.add_column('geo_challenge', sa.Column('decay', sa.Integer, default=None))
+    except Exception as e:
+        print(f"Column addition error (might already exist): {str(e)}")
 
 
 def downgrade(op=None):
     bind = op.get_bind()
     url = str(bind.engine.url)
+
+    # Drop the new columns first
+    try:
+        op.drop_column('geo_challenge', 'decay')
+        op.drop_column('geo_challenge', 'minimum')
+        op.drop_column('geo_challenge', 'initial')
+    except Exception as e:
+        print(f"Column drop error: {str(e)}")
 
     # Drop foreign key constraint first
     try:
