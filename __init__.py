@@ -40,10 +40,23 @@ class GeoChallenge(Challenges):
     tolerance_radius = db.Column(Numeric(10, 2), default=10)
 
     def __init__(self, *args, **kwargs):
-        super(GeoChallenge, self).__init__(**kwargs)
-        self.latitude = kwargs.get('latitude', 0)
-        self.longitude = kwargs.get('longitude', 0)
-        self.tolerance_radius = kwargs.get('tolerance_radius', 10)
+        # Extract geo-specific parameters before passing to parent
+        print("[DEBUG_GEO] kwargs: ", kwargs)
+        self.latitude = kwargs.pop('latitude', 0)
+        self.longitude = kwargs.pop('longitude', 0)
+        self.tolerance_radius = kwargs.pop('tolerance_radius', 10)
+        
+        # Only allow known valid parameters for the base Challenge model
+        # This prevents any unknown ctfcli parameters from causing issues
+        valid_challenge_params = {
+            'name', 'description', 'value', 'category', 'type', 'state'
+        }
+        
+        # Filter kwargs to only include valid parameters
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_challenge_params}
+        
+        # Pass only valid kwargs to parent class
+        super(GeoChallenge, self).__init__(**filtered_kwargs)
 
 
 class GeoChallengeType(BaseChallenge):
