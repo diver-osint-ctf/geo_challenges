@@ -21,9 +21,9 @@ def upgrade(op=None):
         op.create_table(
             'geo_challenge',
             sa.Column('id', sa.Integer, sa.ForeignKey('challenges.id', ondelete='CASCADE'), primary_key=True),
-            sa.Column('latitude', sa.Float, default=0),
-            sa.Column('longitude', sa.Float, default=0),
-            sa.Column('tolerance_radius', sa.Float, default=10),
+            sa.Column('latitude', sa.Numeric(12, 10), default=0),
+            sa.Column('longitude', sa.Numeric(13, 10), default=0),
+            sa.Column('tolerance_radius', sa.Numeric(10, 2), default=10),
             # Dynamic scoring columns (optional)
             sa.Column('initial', sa.Integer, default=None),
             sa.Column('minimum', sa.Integer, default=None),
