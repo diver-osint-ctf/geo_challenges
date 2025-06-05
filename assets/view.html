@@ -29,9 +29,9 @@
                         <h3 class="challenge-value text-center">{{ challenge.value }}</h3>
 
                         {% if tags %}
-                            <div class="challenge-tags text-center">
+                            <div class="challenge-tags text-center pt-2 pb-3">
                                 {% for tag in tags %}
-                                    <span class='badge badge-info challenge-tag'>{{ tag }}</span>
+                                    <span class="challenge-tag badge bg-info">{{ tag }}</span>
                                 {% endfor %}
                             </div>
                         {% endif %}
