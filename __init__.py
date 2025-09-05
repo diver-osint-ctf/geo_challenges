@@ -172,8 +172,6 @@ class GeoChallengeType(BaseChallenge):
         data = request.form or request.get_json()
         submission = f"lat:{data['latitude']},lon:{data['longitude']}"
 
-        # Calculate current value (supports dynamic scoring)
-        current_value = cls.calculate_value(challenge)
 
         solve = Solves(
             user_id=user.id,
@@ -184,6 +182,9 @@ class GeoChallengeType(BaseChallenge):
         )
         
         db.session.add(solve)
+        
+        # Calculate current value (supports dynamic scoring)
+        current_value = cls.calculate_value(challenge)
         
         # If dynamic scoring is enabled, update the challenge value
         if all([challenge.initial, challenge.minimum, challenge.decay]):
