@@ -192,7 +192,7 @@ CTFd.plugin.run((_CTFd) => {
             .off("click")
             .on("click", function (e) {
               e.preventDefault();
-              CTFd._internal.challenge.submit();
+              CTFd._internal.challenge.submit(CTFd.config.preview);
             });
         })
         .catch((error) => {
