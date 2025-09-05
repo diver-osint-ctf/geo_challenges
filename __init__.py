@@ -2,6 +2,7 @@ from flask import Blueprint
 from CTFd.models import Challenges, Solves, Fails, db
 from CTFd.plugins import register_plugin_assets_directory, register_plugin_script, register_plugin_stylesheet, register_admin_plugin_stylesheet, register_admin_plugin_script
 from CTFd.plugins.challenges import CHALLENGE_CLASSES, BaseChallenge
+from CTFd.utils.modes import get_model
 from CTFd.utils.user import get_ip
 from CTFd.plugins.migrations import upgrade
 import math
@@ -10,6 +11,22 @@ from sqlalchemy import Numeric, inspect, text
 # Patch CTFd's Challenge view to include additional fields
 from CTFd.api.v1.challenges import Challenge as ChallengeAPI
 original_challenge_get = ChallengeAPI.get
+
+
+def get_solve_count(challenge):
+    Model = get_model()
+
+    solve_count = (
+        Solves.query.join(Model, Solves.account_id == Model.id)
+        .filter(
+            Solves.challenge_id == challenge.id,
+            Model.hidden == False,
+            Model.banned == False,
+        )
+        .count()
+    )
+    return solve_count
+
 
 def patched_challenge_get(self, challenge_id):
     response = original_challenge_get(self, challenge_id)
@@ -113,8 +130,9 @@ class GeoChallengeType(BaseChallenge):
         if not all([challenge.initial, challenge.minimum, challenge.decay]):
             return challenge.value
         
-        # Count the number of solves for this challenge
-        solve_count = Solves.query.filter_by(challenge_id=challenge.id).count()
+        solve_count = get_solve_count(challenge)
+        if solve_count != 0:
+            solve_count -= 1
         
         # Use CTFd's dynamic scoring formula
         # value = (((minimum - initial) / (decay ** 2)) * (solve_count ** 2)) + initial
