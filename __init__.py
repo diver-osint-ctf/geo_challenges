@@ -38,9 +38,6 @@ def patched_challenge_get(self, challenge_id):
             challenge = GeoChallenge.query.filter_by(id=challenge_id).first()
             if challenge:
                 response['data']['tolerance_radius'] = float(challenge.tolerance_radius)
-                # Assurer que les coordonnées sont retournées avec leur précision complète
-                response['data']['latitude'] = float(challenge.latitude)
-                response['data']['longitude'] = float(challenge.longitude)
     
     return response
 
