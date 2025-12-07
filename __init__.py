@@ -66,8 +66,16 @@ class GeoChallenge(Challenges):
         
         # Extract dynamic scoring parameters (for dynamic scoring support)
         self.initial = kwargs.pop('initial', None)
+        if self.initial == '':
+            self.initial = None
+            
         self.minimum = kwargs.pop('minimum', None)
+        if self.minimum == '':
+            self.minimum = None
+            
         self.decay = kwargs.pop('decay', None)
+        if self.decay == '':
+            self.decay = None
         
         # Only allow known valid parameters for the base Challenge model
         valid_challenge_params = {
