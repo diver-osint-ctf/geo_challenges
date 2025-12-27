@@ -31,7 +31,7 @@ This plugin was originally developed for [Oscar Zulu](https://oscarzulu.org) to 
 
 ### Creating a Geo Challenge
 
-* example chall -> https://github.com/diver-osint-ctf/geomap_sample/blob/main/README.md
+* example chall -> [https://github.com/diver-osint-ctf/geomap_sample](https://github.com/diver-osint-ctf/geomap_sample)
 
 1. In the CTFd admin panel, go to Challenges → Create Challenge
 2. Select "geo" as the challenge type
