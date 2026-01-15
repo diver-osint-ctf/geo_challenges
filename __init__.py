@@ -1,9 +1,10 @@
-from flask import Blueprint
+from flask import Blueprint, jsonify, request
 from CTFd.models import Challenges, Solves, Fails, db
 from CTFd.plugins import register_plugin_assets_directory, register_plugin_script, register_plugin_stylesheet, register_admin_plugin_stylesheet, register_admin_plugin_script
 from CTFd.plugins.challenges import CHALLENGE_CLASSES, BaseChallenge
 from CTFd.utils.modes import get_model
-from CTFd.utils.user import get_ip
+from CTFd.utils.user import get_ip, get_current_user
+from CTFd.utils.decorators import authed_only
 from CTFd.plugins.migrations import upgrade
 import math
 from sqlalchemy import Numeric, inspect, text
@@ -273,14 +274,79 @@ def load(app):
     register_plugin_script("/plugins/geo_challenges/geo_link.js")
     register_admin_plugin_script("/plugins/geo_challenges/geo_link.js")
     register_plugin_script("/plugins/geo_challenges/assets/i18n.js")
-    
+
+    # Define and register API endpoint for submissions
+    def get_submissions_endpoint():
+        try:
+            challenge_id = request.args.get('challenge_id', type=int)
+
+            if not challenge_id:
+                return jsonify({'success': False, 'message': 'Challenge ID is required'}), 400
+
+            # Get current user
+            user = get_current_user()
+            if not user:
+                return jsonify({'success': False, 'message': 'User not authenticated'}), 401
+
+            # Fetch solves and fails for this user and challenge
+            solves = Solves.query.filter_by(
+                challenge_id=challenge_id,
+                user_id=user.id
+            ).all()
+
+            fails = Fails.query.filter_by(
+                challenge_id=challenge_id,
+                user_id=user.id
+            ).all()
+
+            # Combine and format submissions
+            submissions = []
+
+            for solve in solves:
+                submissions.append({
+                    'id': solve.id,
+                    'challenge_id': solve.challenge_id,
+                    'user_id': solve.user_id,
+                    'date': solve.date.isoformat(),
+                    'type': 'correct',
+                    'provided': solve.provided
+                })
+
+            for fail in fails:
+                submissions.append({
+                    'id': fail.id,
+                    'challenge_id': fail.challenge_id,
+                    'user_id': fail.user_id,
+                    'date': fail.date.isoformat(),
+                    'type': 'incorrect',
+                    'provided': fail.provided
+                })
+
+            # Sort by date
+            submissions.sort(key=lambda x: x['date'], reverse=True)
+
+            return jsonify({'success': True, 'data': submissions})
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'message': 'Internal server error'}), 500
+
+    # Register endpoint with app - use plugin-specific path to avoid conflicts
+    app.add_url_rule(
+        '/api/v1/geo/submissions',
+        'geo_submissions',
+        authed_only(get_submissions_endpoint),
+        methods=['GET']
+    )
+
     # Register the plugin assets directory
     register_plugin_assets_directory(
         app, base_path="/plugins/geo_challenges/assets/"
     )
-    
+
     # Register the challenge type's blueprint
     app.register_blueprint(GeoChallengeType.blueprint)
-    
+
     # Register the challenge type
     CHALLENGE_CLASSES["geo"] = GeoChallengeType
