@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response
 from CTFd.models import Challenges, Solves, Fails, db
 from CTFd.plugins import register_plugin_assets_directory, register_plugin_script, register_plugin_stylesheet, register_admin_plugin_stylesheet, register_admin_plugin_script
 from CTFd.plugins.challenges import CHALLENGE_CLASSES, BaseChallenge
@@ -241,17 +241,17 @@ def load(app):
     # Ajout d'un script très simple pour les liens de coordonnées GPS
     @app.route('/plugins/geo_challenges/geo_link.js')
     def geo_link_script():
-        return """
+        js_code = """
         document.addEventListener('DOMContentLoaded', function() {
             // Script minimal pour convertir les coordonnées GPS en liens
             setInterval(function() {
                 var elements = document.querySelectorAll('pre, td');
                 elements.forEach(function(el) {
                     if (el.hasAttribute('data-processed')) return;
-                    
+
                     var text = el.innerText || '';
                     var match = text.match(/^lat:([-\\d.]+),lon:([-\\d.]+)$/);
-                    
+
                     if (match) {
                         var lat = match[1];
                         var lon = match[2];
@@ -269,6 +269,7 @@ def load(app):
             }, 2000); // Exécuter toutes les 2 secondes
         });
         """
+        return Response(js_code, mimetype='application/javascript')
 
     # Enregistrer le script personnalisé
     register_plugin_script("/plugins/geo_challenges/geo_link.js")
