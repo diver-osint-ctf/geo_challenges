@@ -113,6 +113,29 @@ class GeoChallengeType(BaseChallenge):
     challenge_model = GeoChallenge
 
     @classmethod
+    def update(cls, challenge, request):
+        data = request.form or request.get_json()
+        for attr, value in data.items():
+            if attr in ("initial", "minimum", "decay"):
+                if value == '' or value is None:
+                    value = None
+                else:
+                    try:
+                        value = float(value)
+                    except (ValueError, TypeError):
+                        value = None
+            setattr(challenge, attr, value)
+
+        db.session.commit()
+
+        # Recalculate value if dynamic scoring is enabled
+        if all([challenge.initial, challenge.minimum, challenge.decay]):
+            challenge.value = cls.calculate_value(challenge)
+            db.session.commit()
+
+        return challenge
+
+    @classmethod
     def calculate_distance(cls, lat1, lon1, lat2, lon2):
         """Calculate distance between two points using Haversine formula"""
         R = 6371e3  # Earth's radius in meters
