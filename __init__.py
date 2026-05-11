@@ -66,16 +66,8 @@ class GeoChallenge(Challenges):
         
         # Extract dynamic scoring parameters (for dynamic scoring support)
         self.initial = kwargs.pop('initial', None)
-        if self.initial == '':
-            self.initial = None
-            
         self.minimum = kwargs.pop('minimum', None)
-        if self.minimum == '':
-            self.minimum = None
-            
         self.decay = kwargs.pop('decay', None)
-        if self.decay == '':
-            self.decay = None
         
         # Only allow known valid parameters for the base Challenge model
         valid_challenge_params = {
@@ -134,21 +126,39 @@ class GeoChallengeType(BaseChallenge):
         # If dynamic scoring parameters are not set, return the base value
         if not all([challenge.initial, challenge.minimum, challenge.decay]):
             return challenge.value
-        
+
         solve_count = get_solve_count(challenge)
         if solve_count != 0:
             solve_count -= 1
-        
+
         # Use CTFd's dynamic scoring formula
         # value = (((minimum - initial) / (decay ** 2)) * (solve_count ** 2)) + initial
         value = (((challenge.minimum - challenge.initial) / (challenge.decay ** 2)) * (solve_count ** 2)) + challenge.initial
         value = math.ceil(value)
-        
+
         # Ensure value doesn't go below minimum
         if value < challenge.minimum:
             value = challenge.minimum
-            
+
         return value
+
+    @classmethod
+    def update(cls, challenge, request):
+        """
+        Recompute the dynamic value after CTFd's stock update.
+
+        CTFd's BaseChallenge.update blindly setattrs every field the request
+        carries — including `value` — so `ctf challenge sync` overwrites the
+        score-drop earned by solves with the yaml-authored initial. We let
+        the base update run for its normal field handling, then re-derive
+        `value` from initial/minimum/decay if dynamic scoring is configured.
+        """
+        challenge = super(GeoChallengeType, cls).update(challenge, request)
+        if all([challenge.initial, challenge.minimum, challenge.decay]):
+            challenge.value = cls.calculate_value(challenge)
+            db.session.add(challenge)
+            db.session.commit()
+        return challenge
 
     @classmethod
     def attempt(cls, challenge, request):
