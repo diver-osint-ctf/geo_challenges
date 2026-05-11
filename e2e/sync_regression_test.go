@@ -1,101 +1,179 @@
-// Regression tests for d3d7687 ("feat: improve challenge scoring parameter
-// handling"). The bug: running `ctf sync` re-PUTs the challenge with the
-// dynamic-scoring fields (initial / minimum / decay) and, when the source
-// yaml emptied any of them, the previous code wrote empty strings into the
-// Integer DB columns and killed dynamic scoring — `all([challenge.initial,
-// ...])` becomes False thereafter, so the value pinned at whatever it had
-// dropped to during play. Subsequent solves no longer recompute it.
+// Regression tests for the user-reported bug: after dynamic scoring drops a
+// geo challenge's value (e.g. 500 → 100 across several solves), running
+// `ctf challenge sync` resets the score back to the yaml-authored initial
+// (500). The default CTFd update path is the culprit — BaseChallenge.update
+// blindly setattrs every field the yaml carries, including `value`,
+// clobbering whatever dynamic scoring computed.
 //
-// We cover both the "sync during the CTF" and "sync after the CTF ended"
-// paths because the user-reported failure happens specifically when the
-// admin re-runs sync after the event for cleanup / archival.
-//
-// We can't directly read initial/minimum/decay back via the JSON API:
-// CTFd's BaseChallenge.read masks them as null whenever `function`
-// (CTFd's own scoring function) is "static", which is geo's default —
-// the plugin runs its own dynamic-scoring loop on top. So instead we
-// probe behaviour: another solve must still drop the value.
+// These tests reproduce the bug end-to-end (yaml → ctfcli install →
+// solves → ctfcli sync) and ASSERT the dynamic-scored value is preserved.
+// They fail on a vanilla geo_challenges install today; they will pass
+// once the plugin (or ctfcli, or CTFd) stops overwriting `value` during
+// sync.
 package e2e
 
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/diver-osint-ctf/ctfd-plugin-e2e/testutil"
 )
 
-// dynamicParams mimics the body ctfcli re-sends for a dynamic geo
-// challenge during sync. Numbers are kept as the yaml authored them.
-var dynamicParams = map[string]any{
-	"initial": 500,
-	"minimum": 100,
-	"decay":   2,
-}
+const dynamicChallengeYAML = `name: %s
+category: %s
+description: regression coverage for ctfcli sync resetting dynamic score
+value: 500
+type: geo
+state: visible
+flags:
+  - flag{cli}
+extra:
+  latitude: 35.6586
+  longitude: 139.7454
+  tolerance_radius: 1000
+  initial: 500
+  minimum: 100
+  decay: 2
+`
 
-// TestGeo_DynamicScoringSurvivesSyncDuringCTF — value-drop, sync mid-event,
-// then another solve must keep dropping.
-func TestGeo_DynamicScoringSurvivesSyncDuringCTF(t *testing.T) {
+// TestGeo_CTFCLISyncDuringCTFMustPreserveDynamicValue — sync runs while the
+// CTF is still live. Even then the dynamic-scored value must not snap back
+// to yaml's `value:`.
+func TestGeo_CTFCLISyncDuringCTFMustPreserveDynamicValue(t *testing.T) {
 	admin := testutil.AdminClient(t)
 	ns := testutil.Namespace(t)
 
-	chal := createDynamicGeo(t, admin, ns)
-	dropped := driveValueDown(t, admin, ns, chal.ID, 2)
+	chalID := installViaCTFCLI(t, admin, ns)
+	dropped := driveValueDown(t, admin, ns, chalID, 3)
 
-	if _, err := patchChallenge(t, admin, chal.ID, dynamicParams); err != nil {
-		t.Fatalf("PATCH challenge mid-CTF: %v", err)
+	syncViaCTFCLI(t, ns)
+
+	got := readValue(t, admin, chalID)
+	if got != dropped {
+		t.Errorf("ctfcli sync mid-CTF reset the dynamic-scored value: before=%d, after=%d", dropped, got)
 	}
-	requireValueDropsOnNextSolve(t, admin, ns, chal.ID, dropped, 3)
 }
 
-// TestGeo_DynamicScoringSurvivesSyncAfterCTF — value-drop, mark CTF over,
-// sync, reopen, solve once more — the value must still fall. This is the
-// concrete shape of the user-reported regression.
-func TestGeo_DynamicScoringSurvivesSyncAfterCTF(t *testing.T) {
+// TestGeo_CTFCLISyncAfterCTFMustPreserveDynamicValue — same flow but the
+// admin marks the CTF as over (sets `end` to the recent past) before
+// syncing. This is the exact sequence in the bug report.
+func TestGeo_CTFCLISyncAfterCTFMustPreserveDynamicValue(t *testing.T) {
 	admin := testutil.AdminClient(t)
 	ns := testutil.Namespace(t)
 
-	chal := createDynamicGeo(t, admin, ns)
-	dropped := driveValueDown(t, admin, ns, chal.ID, 2)
+	chalID := installViaCTFCLI(t, admin, ns)
+	dropped := driveValueDown(t, admin, ns, chalID, 3)
 
 	original := readEnd(t, admin)
 	t.Cleanup(func() { setEnd(t, admin, original) })
-
-	// 1) End the event.
 	setEnd(t, admin, fmt.Sprintf("%d", time.Now().Unix()-10))
 
-	// 2) Run the sync that the bug report blames (ctfcli post-event push).
-	if _, err := patchChallenge(t, admin, chal.ID, dynamicParams); err != nil {
-		t.Fatalf("PATCH challenge post-CTF: %v", err)
+	syncViaCTFCLI(t, ns)
+
+	got := readValue(t, admin, chalID)
+	if got != dropped {
+		t.Errorf("ctfcli sync after CTF end reset the dynamic-scored value: before=%d, after=%d", dropped, got)
 	}
-
-	// 3) Reopen so we can observe the behaviour. (The DB state was
-	//    already written by step 2; reopening just lets a solve probe it.)
-	setEnd(t, admin, "")
-
-	requireValueDropsOnNextSolve(t, admin, ns, chal.ID, dropped, 3)
 }
 
-// ----- helpers -----
+// ----- ctfcli orchestration -----
 
-func createDynamicGeo(t *testing.T, admin *testutil.Client, ns string) *testutil.Challenge {
+func projectRoot(t *testing.T) string {
 	t.Helper()
-	return testutil.CreateChallenge(t, admin, ns, "geo", testutil.ChallengeGeo, testutil.ChallengeOpts{
-		Value: 500,
-		Extra: map[string]any{
-			"latitude":         tokyoLat,
-			"longitude":        tokyoLon,
-			"tolerance_radius": 1000,
-			"initial":          500,
-			"minimum":          100,
-			"decay":            2,
-		},
-	})
+	p, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "ctfd-plugin-e2e"))
+	if err != nil {
+		t.Fatalf("resolve project root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p, ".ctf", "config")); err != nil {
+		if v := os.Getenv("E2E_PROJECT_ROOT"); v != "" {
+			return v
+		}
+		t.Fatalf("could not locate project root at %s (no .ctf/config); set E2E_PROJECT_ROOT to override", p)
+	}
+	return p
 }
+
+// challengeDir creates a per-test challenge directory under
+// .data/test-challenges/ inside the project root and writes challenge.yml.
+// ctfcli rejects paths outside its project_path, so a temp dir elsewhere
+// would not work.
+func challengeDir(t *testing.T, ns string) string {
+	t.Helper()
+	base := filepath.Join(projectRoot(t), ".data", "test-challenges", ns+"-dyn")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatalf("mkdir challenge dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	yaml := fmt.Sprintf(dynamicChallengeYAML, challengeName(ns), ns+"-cat")
+	if err := os.WriteFile(filepath.Join(base, "challenge.yml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write challenge.yml: %v", err)
+	}
+	return base
+}
+
+func challengeName(ns string) string { return ns + "-dyn-cli" }
+
+func runCTFCLI(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.Command("ctf", args...)
+	cmd.Dir = projectRoot(t)
+	cmd.Env = append(os.Environ(),
+		"CTFCLI_URL="+testutil.CTFdURL(t),
+		"CTFCLI_ACCESS_TOKEN="+testutil.AdminToken(t),
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ctf %v failed: %v\n%s", args, err, out)
+	}
+	t.Logf("ctf %v ok\n%s", args, out)
+}
+
+func installViaCTFCLI(t *testing.T, admin *testutil.Client, ns string) int {
+	t.Helper()
+	dir := challengeDir(t, ns)
+	runCTFCLI(t, "challenge", "install", "--challenge", dir)
+	id := findChallengeIDByName(t, admin, challengeName(ns))
+	t.Cleanup(func() {
+		_, _ = admin.DoJSON(http.MethodDelete, fmt.Sprintf("/api/v1/challenges/%d", id), nil, nil)
+	})
+	return id
+}
+
+func syncViaCTFCLI(t *testing.T, ns string) {
+	t.Helper()
+	dir := challengeDir(t, ns)
+	runCTFCLI(t, "challenge", "sync", "--challenge", dir)
+}
+
+func findChallengeIDByName(t *testing.T, admin *testutil.Client, name string) int {
+	t.Helper()
+	var resp struct {
+		Data []struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if _, err := admin.GetJSON("/api/v1/challenges?per_page=200&view=admin", &resp); err != nil {
+		t.Fatalf("list challenges: %v", err)
+	}
+	for _, c := range resp.Data {
+		if c.Name == name {
+			return c.ID
+		}
+	}
+	t.Fatalf("challenge %q not found after ctfcli install", name)
+	return 0
+}
+
+// ----- shared helpers -----
 
 // driveValueDown solves the challenge `n` times with fresh users and returns
-// the resulting (decreased) challenge value.
+// the resulting (decreased) challenge value. Fails if the value didn't drop.
 func driveValueDown(t *testing.T, admin *testutil.Client, ns string, challengeID, n int) int {
 	t.Helper()
 	for i := 1; i <= n; i++ {
@@ -108,32 +186,9 @@ func driveValueDown(t *testing.T, admin *testutil.Client, ns string, challengeID
 	}
 	v := readValue(t, admin, challengeID)
 	if v >= 500 {
-		t.Fatalf("expected value to drop below initial 500, got %d after %d solves", v, n)
+		t.Fatalf("expected value to drop below initial 500 after %d solves, got %d", n, v)
 	}
 	return v
-}
-
-// requireValueDropsOnNextSolve asserts that solving once more (with a fresh
-// user numbered `nextUser`) further reduces the challenge value. This is
-// the behaviour the bug breaks — when initial/minimum/decay got wiped,
-// `calculate_value` short-circuited via `return challenge.value` and the
-// score froze at whatever it dropped to.
-func requireValueDropsOnNextSolve(t *testing.T, admin *testutil.Client, ns string, challengeID, before, nextUser int) {
-	t.Helper()
-	u := testutil.CreateUser(t, admin, ns, nextUser)
-	uc := testutil.UserClient(t, u.Name, u.Password)
-	if r := submitCoords(t, uc, challengeID, tokyoLat, tokyoLon); r.Status != "correct" {
-		t.Fatalf("solve #%d: expected correct, got %s (%s)", nextUser, r.Status, r.Message)
-	}
-	after := readValue(t, admin, challengeID)
-	if after >= before {
-		t.Errorf("dynamic scoring appears frozen: value was %d, stayed at %d after another solve", before, after)
-	}
-}
-
-func patchChallenge(t *testing.T, admin *testutil.Client, id int, body map[string]any) (*http.Response, error) {
-	t.Helper()
-	return admin.DoJSON(http.MethodPatch, fmt.Sprintf("/api/v1/challenges/%d", id), body, nil)
 }
 
 func readEnd(t *testing.T, admin *testutil.Client) string {
